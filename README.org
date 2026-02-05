@@ -1,0 +1,5 @@
+MultiStateTMLE is a framework for nonparametric causal inference with
+multistate event processes, built around stochastic intensity
+interventions, calibrated interventions, and composite estimands, and
+estimated using targeted maximum likelihood estimation (TMLE) allowing
+flexible nuisance learning.
