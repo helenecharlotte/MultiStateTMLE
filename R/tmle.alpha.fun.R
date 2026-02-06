@@ -3,9 +3,9 @@
 ## Author: Helene
 ## Created: Feb  4 2026 (12:51) 
 ## Version: 
-## Last-Updated: Feb  5 2026 (09:50) 
+## Last-Updated: Feb  6 2026 (13:51) 
 ##           By: Helene
-##     Update #: 143
+##     Update #: 172
 #----------------------------------------------------------------------
 ## 
 ### Commentary: 
@@ -17,7 +17,7 @@
 
 tmle.alpha.fun <- function(target = "z",
                            tau = 1.2,
-                           alpha = 1,
+                           alpha = 1, z.name = "z",
                            a = NULL,
                            initial.fit = NULL,
                            verbose = FALSE,
@@ -45,20 +45,34 @@ tmle.alpha.fun <- function(target = "z",
 
     process.names <- initial.fit$process.names
     process.deltas <- initial.fit$process.deltas
+    process.types <- initial.fit$process.types
 
     cens.process.id <- initial.fit$cens.process.id
-    z.process.id <- (1:length(process.names))[tolower(process.names) == "z"]
-    z.name <- process.names[z.process.id]
 
     at.risks <- initial.fit$at.risks
+      
+    z.process.id <- (1:length(process.names))[tolower(process.names) == z.name]
+
+    if (length(z.process.id) == 0) {
+        z.present <- FALSE
+        z.process.id <- Inf
+        z.name <- "not.applied"
+        if (!identical(alpha, 1)) warning("No 'z' process found in initial.fit; alpha-scaling will be ignored (treated as 1).")
+    } else {
+        z.present <- TRUE
+        z.name <- process.names[z.process.id]
+    }
 
     #--------------------------------    
     #-- compute clever weights:
 
-    tmp.long[, cum.hazard.z := cumsum(get(paste0("at.risk.", process.names[z.process.id]))*get(paste0("P.", process.names[z.process.id]))), by = "id"]
-    tmp.long[, cum.hazard.z.1 := c(0, cum.hazard.z[-.N]), by = "id"]
-        
-    tmp.long[, clever.weight.alpha := alpha^get(z.name)*exp(-(alpha-1)*cum.hazard.z.1)]
+     if (z.present) {
+        tmp.long[, cum.hazard.z := cumsum(get(paste0("at.risk.", process.names[z.process.id]))*get(paste0("P.", process.names[z.process.id]))), by = "id"]
+        tmp.long[, cum.hazard.z.1 := c(0, cum.hazard.z[-.N]), by = "id"]
+        tmp.long[, clever.weight.alpha := alpha^get(z.name)*exp(-(alpha-1)*cum.hazard.z.1)]
+    } else {
+        tmp.long[, clever.weight.alpha := 1]
+    }
 
     if (length(a)>0) {
         tmp.long[, clever.weight := tmp.long[[paste0("clever.weight.a", a)]]]
@@ -83,7 +97,7 @@ tmle.alpha.fun <- function(target = "z",
     target.name <- process.names[target.id]
 
     tmp.long[, at.risk := (time <= final.time)]
-    
+
     if (target.name %in% names(at.risks)) {
         # states <- states[at.risks[[target.name]](states)]
         tmp.long[, at.risk := at.risk*(at.risks[[target.name]](tmp.long))]
@@ -95,7 +109,7 @@ tmle.alpha.fun <- function(target = "z",
     }
     
     P.prefix <- ifelse(length(a)>0, paste0("P.a", a, "."), paste0("P."))
-
+           
     #--------------------------------    
     #-- counterfactual P.Z:
 
@@ -124,6 +138,7 @@ tmle.alpha.fun <- function(target = "z",
                 dt_list,
                 compute.Q.clever.per.id,
                 states = states,
+                process.types = process.types,
                 P.prefix = P.prefix,
                 parameter = target.name,
                 mc.cores = min(detectCores()-1, use.cores)
@@ -176,10 +191,11 @@ tmle.alpha.fun <- function(target = "z",
             }
         }
 
-        tmp.long[, cum.hazard.z := cumsum(get(paste0("at.risk.", process.names[z.process.id]))*get(paste0("P.", process.names[z.process.id]))), by = "id"]
-        tmp.long[, cum.hazard.z.1 := c(0, cum.hazard.z[-.N]), by = "id"]
-        
-        tmp.long[, clever.weight.alpha := alpha^get(z.name)*exp(-(alpha-1)*cum.hazard.z.1)]   
+        if (z.present) {
+            tmp.long[, cum.hazard.z := cumsum(get(paste0("at.risk.", process.names[z.process.id]))*get(paste0("P.", process.names[z.process.id]))), by = "id"]
+            tmp.long[, cum.hazard.z.1 := c(0, cum.hazard.z[-.N]), by = "id"]
+            tmp.long[, clever.weight.alpha := alpha^get(z.name)*exp(-(alpha-1)*cum.hazard.z.1)]
+        }
 
     }
 

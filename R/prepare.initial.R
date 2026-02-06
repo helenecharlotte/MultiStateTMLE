@@ -3,9 +3,9 @@
 ## Author: Helene
 ## Created: Feb  4 2026 (08:47) 
 ## Version: 
-## Last-Updated: Feb  5 2026 (09:13) 
+## Last-Updated: Feb  6 2026 (20:17) 
 ##           By: Helene
-##     Update #: 248
+##     Update #: 344
 #----------------------------------------------------------------------
 ## 
 ### Commentary: 
@@ -35,7 +35,7 @@ prepare.initial <- function(dt,
                                                  fit = "cox")
                             ),
                             browse = FALSE,
-                            max.cap.events = 10,
+                            max.count = 2,
                             a = NULL,
                             fit.treatment = NULL,
                             verbose = FALSE) {
@@ -77,12 +77,22 @@ prepare.initial <- function(dt,
         tmp.delta <- strsplit(fit.type[["model"]], "~")[[1]][1]
         as.numeric(substr(tmp.delta, nchar(tmp.delta)-1, nchar(tmp.delta)-1))
     }))))
-
     
     #-- names of types
     process.names <- names(fit.types)
     state.names <- process.names[process.names %in% varnames[varnames %in% process.names]]
     state.deltas <- process.deltas[process.names %in% state.names]
+
+    #-- process types
+    process.types <- lapply(1:length(process.names), function(process.jj) {
+        delta.jj <- process.deltas[process.jj]
+        is.terminal <- all(dt[, (delta == delta.jj)*(time < max(time)), by = "id"][[2]] == 0)
+        is.recurrent <- any(dt[delta == delta.jj, .N, by = "id"][["N"]]>1)
+        return(ifelse(is.terminal, "terminal", ifelse(is.recurrent, "recurrent", "one.jump")))
+    })
+    names(process.types) <- process.names
+
+    which.recurrent <- intersect(state.names, process.names[sapply(process.types, function(process.type) process.type == "recurrent")])
 
     #-- name of baseline treatment variable:
     if (length(fit.treatment[["model"]])>0) {
@@ -99,9 +109,23 @@ prepare.initial <- function(dt,
 
     dt[, tstart := c(0, time[-.N]), by = "id"]
     dt[, tstop := time]
+
+    if (length(which.recurrent) > 0) {
+        for (var.recurrent in which.recurrent) {
+            dt[, (var.recurrent) := cumsum(delta == process.deltas[process.names == var.recurrent]), by = "id"]
+        }
+    }
    
     for (varname in state.names) {
         dt[, (varname) := c(0, get(varname)[-.N]), by = "id"]
+    }
+
+    if (length(which.recurrent) > 0) {
+        for (var.recurrent in which.recurrent) {
+            for (count.jj in 1:max.count) {
+                dt[, (paste0(var.recurrent, ".", count.jj)) := (dt[[var.recurrent]] >= count.jj)]
+            }
+        }
     }
 
     #--------------------------------
@@ -122,12 +146,20 @@ prepare.initial <- function(dt,
     #-- outcome / clever covariate part:
     # (we start with cox models, if HAL is specified this is fitted later)
     fit.cox.types <- lapply(1:length(fit.types), function(fit.type.jj) {
+        model.jj <- fit.types[[fit.type.jj]][["model"]]
+        if (length(which.recurrent) > 0) {
+            for (var.recurrent in which.recurrent) {
+                model.jj <- gsub(paste0("\\+", var.recurrent),
+                                 paste0(paste0("+", var.recurrent, ".", 1:max.count), collapse = ""),
+                                 model.jj)
+            }
+        }
         if (fit.type.jj %in% at.risk.ids) {
-            tmp.cox <- coxph(as.formula(fit.types[[fit.type.jj]][["model"]]),
+            tmp.cox <- coxph(as.formula(model.jj),
                              data = dt[fit.types[[fit.type.jj]][["at.risk"]](dt)], 
                              control = coxph.control(timefix = FALSE))
         } else {
-            tmp.cox <- coxph(as.formula(fit.types[[fit.type.jj]][["model"]]),
+            tmp.cox <- coxph(as.formula(model.jj),
                              data = dt,
                              control = coxph.control(timefix = FALSE))
         }
@@ -146,7 +178,7 @@ prepare.initial <- function(dt,
 
     #-- collect data with all time-points;
     tmp.inner <- merge(dt[, time.obs := time], all.times, by = c("id", "time"), all = TRUE)[order(id, time.obs)]
-
+    
     for (varname in varnames) {
         tmp.inner[, (varname) := na.locf(get(varname)), by = "id"]
     }
@@ -171,17 +203,27 @@ prepare.initial <- function(dt,
         tmp.long[is.na(get(paste0("dhazard.", names(fit.types)[fit.type.jj]))), (paste0("dhazard.", names(fit.types)[fit.type.jj])) := 0]
     }
 
-    for (process.jj in 1:length(state.names)) {
-        tmp.long[, (state.names[process.jj]) := cumsum(1*(delta == state.deltas[process.jj])), by = "id"]
+    if (length(state.names)>0) {
+        for (process.jj in 1:length(state.names)) {
+            tmp.long[, (state.names[process.jj]) := cumsum(1*(delta == state.deltas[process.jj])), by = "id"]
+        }
     }
 
     for (varname in state.names) {
         tmp.long[, (varname) := c(0, get(varname)[-.N]), by = "id"]
     }
 
+    if (length(which.recurrent) > 0) {
+        for (var.recurrent in which.recurrent) {
+            for (count.jj in 1:max.count) {
+                tmp.long[, (paste0(var.recurrent, ".", count.jj)) := (tmp.long[[var.recurrent]] >= count.jj)]
+            }
+        }
+    }
+
     #--------------------------------
     #-- compute needed quantities for (initial) estimation and targeting
-    
+
     for (fit.type.jj in 1:length(fit.types)) {
         if (fit.type.jj %in% at.risk.ids) {
             tmp.long[, (paste0("at.risk.", names(fit.types)[fit.type.jj])) :=
@@ -206,14 +248,16 @@ prepare.initial <- function(dt,
 
     if (browse) browser()
 
-    grid.list <- lapply(state.names,
-                        function(varname) 0:min(max.cap.events, max(unique(tmp.long[[varname]]))))
+    if (length(state.names)>0) {
+        grid.list <- lapply(state.names,
+                            function(varname) 0:min(max.count, max(unique(tmp.long[[varname]]))))
 
-    depend.matrix <- as.data.table(do.call(expand.grid, grid.list))
-
-    names(depend.matrix) <- state.names
-
-    depend.matrix[, state := 1:.N]
+        depend.matrix <- as.data.table(do.call(expand.grid, grid.list))
+        names(depend.matrix) <- state.names
+        depend.matrix[, state := 1:.N]
+    } else {
+        depend.matrix <- data.table(state = 1L)
+    }
 
     if (length(a) == 0) {
         intervene.A0 <- FALSE
@@ -233,7 +277,9 @@ prepare.initial <- function(dt,
     
     #--------------------------------    
     #-- predict for different values of state and intervention on baseline treatment:
-   
+
+    tmp.long[, state := 0]
+    
     for (aa in a) {
 
         if (intervene.A0) {
@@ -254,8 +300,19 @@ prepare.initial <- function(dt,
             which.jj <- TRUE
 
             for (varname in state.names) {
+                
                 tmp.long.jj[[varname]] <- depend.matrix[state == state.jj][[varname]]
-                which.jj <- which.jj*(tmp.long[[varname]] == tmp.long.jj[[varname]])
+
+                if (length(which.recurrent) > 0) {
+                    if (varname %in% which.recurrent) {
+                        for (count.jj in 1:max.count) {
+                            tmp.long.jj[, (paste0(varname, ".", count.jj)) := (tmp.long.jj[[varname]] >= count.jj)]
+                        }
+                    }
+                }
+
+                which.jj <- which.jj*(tmp.long[[varname]] >= tmp.long.jj[[varname]])
+
             }
 
             for (fit.type.jj in (1:length(fit.types))[-cens.process.id]) {
@@ -272,7 +329,7 @@ prepare.initial <- function(dt,
                              paste0("P.", "a", aa, ".", names(fit.types)[fit.type.jj], ".", state.jj))
                 }
             }
-
+            
             tmp.long[
                 which.jj == 1,
                 state := state.jj]
@@ -287,6 +344,7 @@ prepare.initial <- function(dt,
         depend.matrix = depend.matrix,
         process.names = process.names,
         process.deltas = process.deltas,
+        process.types = process.types,
         cens.process.id = cens.process.id,
         at.risks = at.risks
     ))
