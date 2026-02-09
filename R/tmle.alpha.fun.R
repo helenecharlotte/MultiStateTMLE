@@ -3,9 +3,9 @@
 ## Author: Helene
 ## Created: Feb  4 2026 (12:51) 
 ## Version: 
-## Last-Updated: Feb  6 2026 (13:51) 
+## Last-Updated: Feb  9 2026 (13:10) 
 ##           By: Helene
-##     Update #: 172
+##     Update #: 190
 #----------------------------------------------------------------------
 ## 
 ### Commentary: 
@@ -21,8 +21,9 @@ tmle.alpha.fun <- function(target = "z",
                            a = NULL,
                            initial.fit = NULL,
                            verbose = FALSE,
-                           max.iter = 100,
+                           max.iter = 10,
                            use.cores = 50,
+                           truncate.weights = 0,
                            output.convergence = FALSE,
                            output.eic = FALSE,
                            output.weights = NULL,
@@ -64,29 +65,6 @@ tmle.alpha.fun <- function(target = "z",
     }
 
     #--------------------------------    
-    #-- compute clever weights:
-
-     if (z.present) {
-        tmp.long[, cum.hazard.z := cumsum(get(paste0("at.risk.", process.names[z.process.id]))*get(paste0("P.", process.names[z.process.id]))), by = "id"]
-        tmp.long[, cum.hazard.z.1 := c(0, cum.hazard.z[-.N]), by = "id"]
-        tmp.long[, clever.weight.alpha := alpha^get(z.name)*exp(-(alpha-1)*cum.hazard.z.1)]
-    } else {
-        tmp.long[, clever.weight.alpha := 1]
-    }
-
-    if (length(a)>0) {
-        tmp.long[, clever.weight := tmp.long[[paste0("clever.weight.a", a)]]]
-    }
-
-    if (length(output.weights)>0) {
-        tmp.weight <- tmp.long[time <= final.time, max(clever.weight.alpha), by = "id"]
-        out.weights <- sapply(output.weights, function(ppp) {
-            as.numeric(quantile(tmp.weight[[2]], p = ppp))
-        })
-        names(out.weights) <- paste0("q", output.weights*100)
-    }
-
-    #--------------------------------    
     #-- initialization step:
     
     states <- copy(depend.matrix)
@@ -109,6 +87,34 @@ tmle.alpha.fun <- function(target = "z",
     }
     
     P.prefix <- ifelse(length(a)>0, paste0("P.a", a, "."), paste0("P."))
+
+    #--------------------------------    
+    #-- compute clever weights:
+
+    if (z.present) {
+        tmp.long[, cum.hazard.z := cumsum(get(paste0("at.risk.", process.names[z.process.id]))*get(paste0("P.", process.names[z.process.id]))), by = "id"]
+        tmp.long[, cum.hazard.z.1 := c(0, cum.hazard.z[-.N]), by = "id"]
+        tmp.long[, clever.weight.alpha := alpha^get(z.name)*exp(-(alpha-1)*cum.hazard.z.1)]
+        if (truncate.weights>0) {
+            no.truncated <- tmp.long[time <= final.time & clever.weight.alpha > truncate.weights, length(unique(id))]
+            tmp.long[time <= final.time & clever.weight.alpha > truncate.weights, clever.weight.alpha := truncate.weights]
+        }
+    } else {
+        tmp.long[, clever.weight.alpha := 1]
+    }
+
+    if (length(a)>0) {
+        tmp.long[, clever.weight := tmp.long[[paste0("clever.weight.a", a)]]]
+    }
+
+    if (length(output.weights)>0) {
+        tmp.weight <- tmp.long[time <= final.time, max(clever.weight.alpha), by = "id"]
+        out.weights <- sapply(output.weights, function(ppp) {
+            as.numeric(quantile(tmp.weight[[2]], p = ppp))
+        })
+        names(out.weights) <- c(paste0("q", output.weights*100))
+        if (truncate.weights) out.weights <- c(out.weights, no.truncated = no.truncated)
+    }
            
     #--------------------------------    
     #-- counterfactual P.Z:
@@ -121,6 +127,7 @@ tmle.alpha.fun <- function(target = "z",
     #--------------------------------    
     #-- tmle iterations:
 
+    converged <- FALSE
     if (browse) browser()
     
     for (iter in 1:max.iter) {
@@ -172,7 +179,10 @@ tmle.alpha.fun <- function(target = "z",
 
         print(paste0("eic equation solved at = ", abs(mean(eic))))
 
-        if (abs(mean(eic)) <= target.se/(log(n))) break(print(paste0("finished after ", iter, " iterations")))
+        if (abs(mean(eic)) <= target.se/(log(n))) {
+            converged <- TRUE
+            break(print(paste0("finished after ", iter, " iterations")))
+        }
 
         target.fun <- function(eps, process.jj) {
             name.jj <- process.names[process.jj]
@@ -204,7 +214,8 @@ tmle.alpha.fun <- function(target = "z",
 
     if (output.convergence) {
         out[[length(out)+1]] <- c(iter = iter, 
-                                  eic.solved.at = abs(mean(eic)))
+                                  eic.solved.at = abs(mean(eic)),
+                                  converged = converged)
         names(out)[length(out)] <- "convergence"
     }
 

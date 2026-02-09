@@ -3,9 +3,9 @@
 ## Author: Helene
 ## Created: Feb  4 2026 (08:47) 
 ## Version: 
-## Last-Updated: Feb  6 2026 (20:17) 
+## Last-Updated: Feb  9 2026 (09:42) 
 ##           By: Helene
-##     Update #: 344
+##     Update #: 362
 #----------------------------------------------------------------------
 ## 
 ### Commentary: 
@@ -34,6 +34,7 @@ prepare.initial <- function(dt,
                                 censoring = list(model = "Surv(tstart, tstop, delta == 0)~L0+Z+L+A0",
                                                  fit = "cox")
                             ),
+                            use.exponential = FALSE,
                             browse = FALSE,
                             max.count = 2,
                             a = NULL,
@@ -338,6 +339,17 @@ prepare.initial <- function(dt,
 
     at.risks <- lapply(fit.types[at.risk.ids], function(fit.type) fit.type[["at.risk"]])
     names(at.risks) <- names(fit.types)[at.risk.ids]
+
+    names.P <- names(tmp.long)[substr(names(tmp.long), 1, 2) == "P."]
+
+    for (name.P in names.P) {
+        if (any(tmp.long[[name.P]]>1) | use.exponential) {
+            if (!use.exponential) {
+                print(paste0("transform ", name.P, " with 1-exp to avoid values >1"))
+            }
+            tmp.long[, (name.P) := 1-exp(-tmp.long[[name.P]])]
+        }
+    }
 
     return(list(
         tmp.long = tmp.long,
