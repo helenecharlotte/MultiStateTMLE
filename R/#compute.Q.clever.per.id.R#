@@ -308,6 +308,6 @@ compute.Q.clever.per.id <- function(dt_id,
             out[[ paste0("clever.Q.", nm, "1") ]] <- clever1[, nm]
         }
     }
-
+ 
     return(out[])
 }

@@ -3,9 +3,9 @@
 ## Author: Helene
 ## Created: Feb  4 2026 (12:51) 
 ## Version: 
-## Last-Updated: Feb  9 2026 (13:10) 
+## Last-Updated: Feb 10 2026 (12:20) 
 ##           By: Helene
-##     Update #: 190
+##     Update #: 209
 #----------------------------------------------------------------------
 ## 
 ### Commentary: 
@@ -140,6 +140,25 @@ tmle.alpha.fun <- function(target = "z",
                                                              grep("clever.Q", names(tmp.long), value = TRUE))),
                                   with = FALSE], by = "id", keep.by = TRUE)
 
+        if (FALSE) {
+            dt_list <- tmp.long[, !(names(tmp.long) %in% c("Q",
+                                                           grep("clever.Q", names(tmp.long), value = TRUE))),
+                                with = FALSE]
+
+            profvis(compute.Q.clever.per.id(dt_list[id <= 40], states = states,
+                                            process.types = process.types,
+                                            P.prefix = P.prefix,
+                                            #browse = TRUE,
+                                            parameter = target.name))
+
+            compute.Q.clever.per.id(dt_list[id <= 40], states = states,
+                                    process.types = process.types,
+                                    P.prefix = P.prefix,
+                                    browse = TRUE,
+                                    parameter = target.name)
+        }
+
+        
         t2 <- system.time({
             dt_list <- mclapply(
                 dt_list,
@@ -151,6 +170,8 @@ tmle.alpha.fun <- function(target = "z",
                 mc.cores = min(detectCores()-1, use.cores)
             )
         })
+
+        if (verbose) print(t2)
 
         tmp.long <- rbindlist(dt_list)
 
@@ -165,7 +186,9 @@ tmle.alpha.fun <- function(target = "z",
                         Q[1]-target.est,
                         by = "id"][[2]]
 
-        for (process.jj in (1:length(process.names))[-cens.process.id]) {
+        clever.ids <- (1:length(process.names))[sapply(process.names, function(process.name) paste0("clever.Q.", process.name, "0") %in% names(tmp.long))]
+
+        for (process.jj in (1:length(process.names))[clever.ids]) {
             name.jj <- process.names[process.jj]
             eic <- eic + tmp.long[at.risk == 1, sum(alpha^(process.jj == z.process.id)*clever.weight*clever.weight.alpha*(
                 get(paste0("clever.Q.", process.names[process.jj], "1")) - get(paste0("clever.Q.", process.names[process.jj], "0")))*((delta == process.deltas[process.jj]) - get(paste0("at.risk.", name.jj))*get(paste0("P.", name.jj)))),
@@ -190,7 +213,7 @@ tmle.alpha.fun <- function(target = "z",
                 get(paste0("clever.Q.", process.names[process.jj], "1")) - get(paste0("clever.Q.", process.names[process.jj], "0")))*((delta == process.deltas[process.jj]) - get(paste0("at.risk.", name.jj))*get(paste0("P.", name.jj))*exp(eps))), by = "id"][[2]])
         }
 
-        for (process.jj in (1:length(process.names))[-cens.process.id]) {
+        for (process.jj in (1:length(process.names))[clever.ids]) {
             name.jj <- process.names[process.jj]
             eps.jj <- nleqslv(0.00, function(eps) target.fun(eps, process.jj))$x
             if (verbose) print(paste0("eps.", process.names[process.jj], " = ", eps.jj))
