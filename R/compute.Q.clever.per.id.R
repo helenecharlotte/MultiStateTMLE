@@ -376,7 +376,8 @@ compute.Q.clever.per.id <- function(dt_id,
         starts <- unique(c(seq(1L, Tn, by = k), Tn))
         ends   <- pmin(starts + k - 1L, Tn)
         # safe representative: use block right endpoint (>= every tt in block)
-        rep_idx <- ends
+        ## rep_idx <- ends
+        rep_idx <- floor((starts + ends) / 2)
 
         # map every time index to block index 1..length(starts)
         block_of <- findInterval(1:Tn, starts)  # block index for each tt (starts sorted)
@@ -404,8 +405,12 @@ compute.Q.clever.per.id <- function(dt_id,
 
             # update rows 1:tt with today's contribution (this is heavy; see next paragraph)
             clever_diff <- Q.out.block$clever1 - Q.out.block$clever0    # matrix m_rep x P
-            clever.years.lost.matrix[1:tt, ] <- clever.years.lost.matrix[1:tt, ] +
-                dt.vec[tt] * weight.vec[1:tt] * out[[ "at.risk" ]][1:tt] * clever_diff[1:tt, ]
+            
+            nrep <- nrow(clever_diff)      # = m_rep
+            imax <- min(tt, nrep)
+            
+            clever.years.lost.matrix[1:imax, ] <- clever.years.lost.matrix[1:imax, ] +
+                dt.vec[tt] * weight.vec[1:imax] * out[[ "at.risk" ]][1:imax] * clever_diff[1:imax, ]
         }
 
         out [[ "Q" ]] <- Q.years.lost
