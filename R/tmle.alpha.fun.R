@@ -3,9 +3,9 @@
 ## Author: Helene
 ## Created: Feb  4 2026 (12:51) 
 ## Version: 
-## Last-Updated: Feb 10 2026 (12:20) 
+## Last-Updated: Feb 12 2026 (14:41) 
 ##           By: Helene
-##     Update #: 209
+##     Update #: 238
 #----------------------------------------------------------------------
 ## 
 ### Commentary: 
@@ -20,6 +20,7 @@ tmle.alpha.fun <- function(target = "z",
                            alpha = 1, z.name = "z",
                            a = NULL,
                            initial.fit = NULL,
+                           years.lost = NULL,
                            verbose = FALSE,
                            max.iter = 10,
                            use.cores = 50,
@@ -139,25 +140,6 @@ tmle.alpha.fun <- function(target = "z",
         dt_list <- split(tmp.long[, !(names(tmp.long) %in% c("Q",
                                                              grep("clever.Q", names(tmp.long), value = TRUE))),
                                   with = FALSE], by = "id", keep.by = TRUE)
-
-        if (FALSE) {
-            dt_list <- tmp.long[, !(names(tmp.long) %in% c("Q",
-                                                           grep("clever.Q", names(tmp.long), value = TRUE))),
-                                with = FALSE]
-
-            profvis(compute.Q.clever.per.id(dt_list[id <= 40], states = states,
-                                            process.types = process.types,
-                                            P.prefix = P.prefix,
-                                            #browse = TRUE,
-                                            parameter = target.name))
-
-            compute.Q.clever.per.id(dt_list[id <= 40], states = states,
-                                    process.types = process.types,
-                                    P.prefix = P.prefix,
-                                    browse = TRUE,
-                                    parameter = target.name)
-        }
-
         
         t2 <- system.time({
             dt_list <- mclapply(
@@ -167,6 +149,8 @@ tmle.alpha.fun <- function(target = "z",
                 process.types = process.types,
                 P.prefix = P.prefix,
                 parameter = target.name,
+                get.years.lost = (length(years.lost)>0),
+                years.lost.block.size = years.lost,
                 mc.cores = min(detectCores()-1, use.cores)
             )
         })
@@ -190,9 +174,15 @@ tmle.alpha.fun <- function(target = "z",
 
         for (process.jj in (1:length(process.names))[clever.ids]) {
             name.jj <- process.names[process.jj]
-            eic <- eic + tmp.long[at.risk == 1, sum(alpha^(process.jj == z.process.id)*clever.weight*clever.weight.alpha*(
-                get(paste0("clever.Q.", process.names[process.jj], "1")) - get(paste0("clever.Q.", process.names[process.jj], "0")))*((delta == process.deltas[process.jj]) - get(paste0("at.risk.", name.jj))*get(paste0("P.", name.jj)))),
-                by = "id"][[2]]
+            if (length(years.lost)>0) {
+                eic <- eic + tmp.long[at.risk == 1, sum(alpha^(process.jj == z.process.id)*(
+                    get(paste0("clever.Q.years.lost.", process.names[process.jj])))*((delta == process.deltas[process.jj]) - get(paste0("at.risk.", name.jj))*get(paste0("P.", name.jj)))),
+                    by = "id"][[2]]
+            } else {
+                eic <- eic + tmp.long[at.risk == 1, sum(alpha^(process.jj == z.process.id)*clever.weight*clever.weight.alpha*(
+                    get(paste0("clever.Q.", process.names[process.jj], "1")) - get(paste0("clever.Q.", process.names[process.jj], "0")))*((delta == process.deltas[process.jj]) - get(paste0("at.risk.", name.jj))*get(paste0("P.", name.jj)))),
+                    by = "id"][[2]]
+            }
         }
         
         if (iter == 1) {
@@ -204,13 +194,22 @@ tmle.alpha.fun <- function(target = "z",
 
         if (abs(mean(eic)) <= target.se/(log(n))) {
             converged <- TRUE
-            break(print(paste0("finished after ", iter, " iterations")))
+            print(paste0("converged after ", iter, " iterations"))
+            break()
         }
 
-        target.fun <- function(eps, process.jj) {
-            name.jj <- process.names[process.jj]
-            mean(tmp.long[at.risk == 1, sum((alpha)^(process.jj == z.process.id)*clever.weight*clever.weight.alpha*(
-                get(paste0("clever.Q.", process.names[process.jj], "1")) - get(paste0("clever.Q.", process.names[process.jj], "0")))*((delta == process.deltas[process.jj]) - get(paste0("at.risk.", name.jj))*get(paste0("P.", name.jj))*exp(eps))), by = "id"][[2]])
+        if (length(years.lost)>0) {
+            target.fun <- function(eps, process.jj) {
+                name.jj <- process.names[process.jj]
+                mean(tmp.long[at.risk == 1, sum((alpha)^(process.jj == z.process.id)*(
+                    get(paste0("clever.Q.years.lost.", process.names[process.jj])))*((delta == process.deltas[process.jj]) - get(paste0("at.risk.", name.jj))*get(paste0("P.", name.jj))*exp(eps))), by = "id"][[2]])
+            }
+        } else {
+            target.fun <- function(eps, process.jj) {
+                name.jj <- process.names[process.jj]
+                mean(tmp.long[at.risk == 1, sum((alpha)^(process.jj == z.process.id)*clever.weight*clever.weight.alpha*(
+                    get(paste0("clever.Q.", process.names[process.jj], "1")) - get(paste0("clever.Q.", process.names[process.jj], "0")))*((delta == process.deltas[process.jj]) - get(paste0("at.risk.", name.jj))*get(paste0("P.", name.jj))*exp(eps))), by = "id"][[2]])
+            }
         }
 
         for (process.jj in (1:length(process.names))[clever.ids]) {

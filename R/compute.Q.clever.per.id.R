@@ -26,7 +26,9 @@ compute.Q.clever.per.id <- function(dt_id,
                                     parameter = "target",
                                     process.deltas = NULL,
                                     compute.clever = TRUE,
-                                    browse = FALSE) {
+                                    browse = FALSE, browse2 = FALSE,
+                                    get.years.lost = FALSE,
+                                    years.lost.block.size = 10) {
 
     requireNamespace("data.table")
     # Defensive checks & normalization
@@ -169,17 +171,6 @@ compute.Q.clever.per.id <- function(dt_id,
     }
 
     # ---- backward recursion
-    Q_by_time <- vector("list", Tn)
-    # terminal condition at last row: use hazard if present or zero
-    if (target_name %in% names(hazard_mats)) {
-        Q_T <- hazard_mats[[ target_name ]][Tn, ]
-    } else {
-        Q_T <- rep(0, S)
-    }
-    if (target_one_jump && target_name_in_states) {
-        Q_T[ as.integer(states[[ target_name ]]) >= 1 ] <- 1
-    }
-    Q_by_time[[Tn]] <- Q_T
 
     ## ---------- Precompute hazard sums (one-time, outside tt-loop)
     if (length(terminal_names) > 0L) {
@@ -209,105 +200,298 @@ compute.Q.clever.per.id <- function(dt_id,
         }
     }
 
-    Q_mat <- matrix(0, nrow = Tn, ncol = S)
-    Q_mat[Tn, ] <- Q_T
-
     gamma_jump_idx_mat <- matrix(NA_integer_, nrow = S, ncol = M)
     for (j in seq_len(M)) gamma_jump_idx_mat[, j] <- gamma_jump_idx[[j]]
-    
-    if (browse) browser()
-
-    for (tt in (Tn - 1):1) {
-        Qn <- Q_mat[tt+1,]
-
-        Pout_sum <- Pout_sum_mat[tt, ]
-        Pproc_sum <- Pproc_sum_mat[tt, ]
-
-        Pstay <- 1 - Pout_sum - Pproc_sum
-
-        Qt <- Pstay * Qn[ gamma_stay_idx ]
-
-        P_states <- hazard_arr[tt, ,]
-
-        Qn_jump_mat <- matrix(Qn[gamma_jump_idx_mat], nrow = S, ncol = M) 
-
-        Qt <- Qt + rowSums(P_states * Qn_jump_mat)
-        
-        # add immediate reward for terminal and recurrent targets
-        if (target_terminal_or_recurrent) {
-            Qt <- Qt + hazard_mats[[ target_name ]][tt, ]
-        }
-
-        # enforce one-jump terminal states -> Q=1 where already observed
-        if (target_one_jump && target_name_in_states) {
-            already_idx <- which(as.integer(states[[ target_name ]]) >= 1)
-            if (length(already_idx) > 0L) Qt[already_idx] <- 1
-        }
-
-        Q_mat[tt, ] <- Qt
-    }
 
     # --- attach rowwise Q
     out <- data.table::copy(dt_id)
-    Q_row <- numeric(Tn)
+    s_vec <- as.integer(out[[ state.idx.col ]])
 
-    if (compute.clever) {
-        # ---------- clever covariates
-        all_names <- sort(unique(c(state_processes, terminal_names)))
-        clever0 <- matrix(NA_real_, nrow = Tn, ncol = length(all_names), dimnames = list(NULL, all_names))
-        clever1 <- matrix(NA_real_, nrow = Tn, ncol = length(all_names), dimnames = list(NULL, all_names))
-        if (target_name_in_states) {
-            target_observed_by_state <- as.integer(states[[ target_name ]] >= 1)  # length S
-        } else {
-            target_observed_by_state <- integer(S)  # zeros
-        }
+    all_names <- sort(unique(c(state_processes, terminal_names)))
+
+    no_all <- length(all_names)
+
+    if (target_name_in_states) {
+        target_observed_by_state <- as.integer(states[[ target_name ]] >= 1)  # length S
+    } else {
+        target_observed_by_state <- integer(S)  # zeros
     }
 
-    s_vec <- as.integer(out[[ state.idx.col ]]) 
-    
-    for (tt in seq_len(Tn)) {
-        s <- s_vec[tt]
-        Q_row[tt] <- Q_mat[tt,s]
-        
-        if (target_name_in_states) {
-            target_observed_by_state_s <- target_observed_by_state[s]
+    compute.Q.up.to.Tn <- function(Tn) {
+
+        # terminal condition at last row: use hazard if present or zero
+        if (target_name %in% names(hazard_mats)) {
+            Q_T <- hazard_mats[[ target_name ]][Tn, ]
         } else {
-            target_observed_by_state_s <- 0
+            Q_T <- rep(0, S)
         }
+        if (target_one_jump && target_name_in_states) {
+            Q_T[ as.integer(states[[ target_name ]]) >= 1 ] <- 1
+        }
+        
+        Q_mat <- matrix(0, nrow = Tn, ncol = S)
+        Q_mat[Tn, ] <- Q_T
+        Q_row <- numeric(Tn)
 
         if (compute.clever) {
-
-            Qn <- if (tt < Tn) Q_mat[tt + 1,] else Q_mat[tt,]
-
-            s_no <- gamma_stay_idx[s]
-            clever0[tt, ] <- Qn[s_no]
-            
-            # terminal processes
-            for (nm in terminal_names) {
-                if (nm == target_name && target_terminal) {
-                    clever1[tt, nm] <- 1
-                } else {
-                    clever1[tt, nm] <- target_observed_by_state_s
-                }
+            # ---------- clever covariates
+            clever0 <- matrix(NA_real_, nrow = Tn, ncol = length(all_names), dimnames = list(NULL, all_names))
+            clever1 <- matrix(NA_real_, nrow = Tn, ncol = length(all_names), dimnames = list(NULL, all_names))
+            if (target_name_in_states) {
+                target_observed_by_state <- as.integer(states[[ target_name ]] >= 1)  # length S
+            } else {
+                target_observed_by_state <- integer(S)  # zeros
             }
-
-            succ_idx_vec <- gamma_jump_idx_mat[s, ]   # length M
-            clever1_vals_stateful <- Qn[succ_idx_vec] # length M
-            clever1[tt, state_processes] <- clever1_vals_stateful+is_recurrent_state_processes
-            
         }
 
+        if (Tn>1) {
+            for (tt in (Tn - 1):1) {
+
+                Qn <- Q_mat[tt+1,]
+
+                Pout_sum <- Pout_sum_mat[tt, ]
+                Pproc_sum <- Pproc_sum_mat[tt, ]
+
+                Pstay <- 1 - Pout_sum - Pproc_sum
+
+                Qt <- Pstay * Qn[ gamma_stay_idx ]
+
+                P_states <- hazard_arr[tt, ,]
+
+                Qn_jump_mat <- matrix(Qn[gamma_jump_idx_mat], nrow = S, ncol = M)
+                
+                Qt <- Qt + rowSums(P_states * Qn_jump_mat)
+        
+                # add immediate reward for terminal and recurrent targets
+                if (target_terminal_or_recurrent) {
+                    Qt <- Qt + hazard_mats[[ target_name ]][tt, ]
+                }
+
+                # enforce one-jump terminal states -> Q=1 where already observed
+                if (target_one_jump && target_name_in_states) {
+                    already_idx <- which(as.integer(states[[ target_name ]]) >= 1)
+                    if (length(already_idx) > 0L) Qt[already_idx] <- 1
+                }
+
+                Q_mat[tt, ] <- Qt
+
+            }
+        } 
+
+        for (tt in seq_len(Tn)) {
+            s <- s_vec[tt]
+            Q_row[tt] <- Q_mat[tt,s]
+        }
+        ##Q_row <- Q_mat[cbind(seq_len(Tn), s_vec)]
+
+        # --- vectorized clever computation (after Q_mat is computed) ---
+        clever0 <- matrix(NA_real_, nrow = Tn, ncol = no_all, dimnames = list(NULL, all_names))
+        clever1 <- matrix(NA_real_, nrow = Tn, ncol = no_all, dimnames = list(NULL, all_names))
+
+        tt_idx <- seq_len(max(1, Tn-1))   # we compute for tt = 1..Tn-1 (use Q_mat[tt+1, ...])
+        m <- (Tn>1)*length(tt_idx)
+
+        # 1) clever0 rows for tt=1..Tn-1:
+        if (m > 0) {
+            s_no_vec <- gamma_stay_idx[s_vec[1:m]]               # length m
+            # value for each tt: Q_mat[tt+1, s_no_vec[tt]]
+            clever0_vals <- Q_mat[cbind(tt_idx + 1L, s_no_vec)]
+            # fill rows 1..m with repeated scalar across columns
+            clever0[1:m, ] <- matrix(rep(clever0_vals, times = no_all), nrow = m, ncol = no_all)
+        }
+        # last row (tt = Tn): use Q_mat[Tn, ..] as in original code
+        clever0[Tn, ] <- Q_mat[Tn, gamma_stay_idx[s_vec[Tn]]]    # scalar repeated
+
+        # 2) terminal processes:
+        if (length(terminal_names) > 0L) {
+            # default for each tt: target_observed_by_state[s_vec[tt]]
+            term_base <- target_observed_by_state[s_vec]          # length Tn
+            # make m x p_term matrix
+            if (m > 0) clever1[1:m, terminal_names] <- matrix(rep(term_base[1:m], length(terminal_names)),
+                                                              nrow = m, ncol = length(terminal_names))
+            clever1[Tn, terminal_names] <- term_base[Tn]
+
+            # if the target is a terminal and should be set to 1:
+            if (target_terminal && target_name %in% terminal_names) {
+                clever1[, target_name] <- 1L
+            }
+        }
+
+        # 3) stateful processes (vectorized)
+        if (length(state_processes) > 0L) {
+            # succ_idx_mat: Tn x M where each row tt lists successor state indices for s_vec[tt]
+            succ_idx_mat <- gamma_jump_idx_mat[s_vec, , drop = FALSE]   # Tn x M
+
+            if (m > 0) {
+                # build long index to extract Q_mat[tt+1, succ_idx_mat[tt, j]] for all tt,j
+                rows_long  <- rep(tt_idx + 1L, times = ncol(succ_idx_mat))  # length m*M
+                cols_long  <- as.integer(as.vector(succ_idx_mat[1:m, , drop = FALSE])) # column-major flatten
+                vals_long  <- Q_mat[cbind(rows_long, cols_long)]
+                # reshape to m x M
+                clever1_stateful <- matrix(vals_long, nrow = m, ncol = ncol(succ_idx_mat))
+                # add recurrence offsets if present
+                if (any(is_recurrent_state_processes != 0L)) {
+                    clever1_stateful <- clever1_stateful + matrix(rep(is_recurrent_state_processes, each = m),
+                                                                  nrow = m, ncol = length(is_recurrent_state_processes), byrow = FALSE)
+                }
+                # assign into clever1 rows 1..m for columns named state_processes
+                clever1[1:m, state_processes] <- clever1_stateful
+            }
+            # last row: tt = Tn
+            clever1[Tn, state_processes] <- Q_mat[Tn, as.integer(succ_idx_mat[Tn, ])] +
+                (is_recurrent_state_processes * 1) # if recurrence offset (careful with types)
+        }
+
+        # At this point clever0/c1 are filled; they match the row-wise scalar logic in your loop.
+
+        if (compute.clever) {
+            return(list(Q_row = Q_row,
+                        clever1 = clever1,
+                        clever0 = clever0))
+        } else {
+            return(list(Q_row = Q_row))
+        }
     }
 
-    out[, Q := Q_row]
+    if (browse) browser()
+
+    Q.out <- compute.Q.up.to.Tn(Tn)
+  
+    out[, Q := Q.out$Q_row]
 
     if (compute.clever) {
         # attach clever columns
         for (nm in all_names) {
-            out[[ paste0("clever.Q.", nm, "0") ]] <- clever0[, nm]
-            out[[ paste0("clever.Q.", nm, "1") ]] <- clever1[, nm]
+            out[[ paste0("clever.Q.", nm, "0") ]] <- Q.out$clever0[, nm]
+            out[[ paste0("clever.Q.", nm, "1") ]] <- Q.out$clever1[, nm]
         }
     }
 
+    weight.vec <- out[["clever.weight"]]*out[["clever.weight.alpha"]]
+
+    if (get.years.lost) {
+
+        # k block size for approximation
+        k <- years.lost.block.size
+        starts <- unique(c(seq(1L, Tn, by = k), Tn))
+        ends   <- pmin(starts + k - 1L, Tn)
+        # safe representative: use block right endpoint (>= every tt in block)
+        rep_idx <- ends
+
+        # map every time index to block index 1..length(starts)
+        block_of <- findInterval(1:Tn, starts)  # block index for each tt (starts sorted)
+
+        Q.years.lost <- 0
+        clever.years.lost.matrix <- matrix(0, nrow = Tn, ncol = length(all_names),
+                                           dimnames = list(NULL, all_names))
+        dt.vec <- diff(c(0, dt_id[["time"]]))    # length Tn
+        last_block <- NA_integer_
+        Q.out.block <- NULL
+
+        # loop descending as you had it
+        for (tt in Tn:1) {
+
+            b <- block_of[tt]   # which block tt belongs to
+            if (is.na(last_block) || b != last_block) {
+                # new block encountered -> compute once for block representative
+                m_rep <- rep_idx[b]     # this is >= tt for any tt in that block
+                Q.out.block <- compute.Q.up.to.Tn(m_rep)   # returns list(Q_row, clever1, clever0)
+                last_block <- b
+            }
+
+            # reuse Q.out.block for all tt in the same block
+            Q.years.lost <- Q.years.lost + dt.vec[tt] * Q.out.block$Q_row[1]
+
+            # update rows 1:tt with today's contribution (this is heavy; see next paragraph)
+            clever_diff <- Q.out.block$clever1 - Q.out.block$clever0    # matrix m_rep x P
+            clever.years.lost.matrix[1:tt, ] <- clever.years.lost.matrix[1:tt, ] +
+                dt.vec[tt] * weight.vec[1:tt] * out[[ "at.risk" ]][1:tt] * clever_diff[1:tt, ]
+        }
+
+        out [[ "Q" ]] <- Q.years.lost
+
+        for (nm in all_names) {
+            out[[ paste0("clever.Q.years.lost.", nm) ]] <- clever.years.lost.matrix[, nm]
+        }
+    }
+
+    
+    if (browse2) browser()
+
+    if (FALSE & get.years.lost) {
+
+            Q.years.lost <- 0
+            clever.years.lost.matrix <- matrix(0, nrow = Tn, ncol = length(all_names),
+                                               dimnames = list(NULL, all_names))
+            dt.vec <- diff(c(0, dt_id[["time"]]))
+            for (tt in Tn:1) {
+
+                Q.out.tt <- compute.Q.up.to.Tn(tt) # gets E[N^x(t)|S_k=S]
+
+            
+                Q.years.lost <- Q.years.lost + dt.vec[tt]*Q.out.tt$Q_row[1] # contribution to integral: E[N^x(t)|S_0=S]dt
+                clever.years.lost.matrix[1:tt,] <- clever.years.lost.matrix[1:tt,] +
+                    dt.vec[tt]*weight.vec[tt]*(Q.out.tt$clever1[, ] - Q.out.tt$clever0[, ]) # contribution to clever covariates: (clever1_k_t - clever0_k_t)dt
+            
+            }
+
+    }
+
+    if (FALSE & get.years.lost) {
+        
+        source("./try/compute.Q.up.to.m.R")
+
+        ################################
+
+        save.Q <- numeric(Tn)
+        save.k.matrix <- matrix(0, nrow = Tn, ncol = length(all_names),
+                                dimnames = list(NULL, all_names))
+        dt_vec <- c(diff(dt_id[["time"]]), 0)
+
+        for (m in 1:(Tn - 1)) {
+            # Q_up_to_m: rows 1..m, cols 1..S
+            Q_up_to_m <- compute.Q.up.to.m(m, Q_mat, hazard_arr, gamma_jump_idx_mat,
+                                           Pout_sum_mat, Pproc_sum_mat, gamma_stay_idx)
+
+            dt_m <- dt_vec[m]
+
+            # for each start k <= m: contribution for the time slice (T_m, T_{m+1}]
+            for (k in seq_len(nrow(Q_up_to_m))) {
+                s_k <- s_vec[k]                # observed state at time k
+                tmp.k <- Q_up_to_m[k, ]        # cumulative up to m when starting (k, *)
+                s_no <- gamma_stay_idx[s_k]    # successor index if no jump
+
+                # subtracted value (expected cumulative up to m under no-jump)
+                sub_val <- tmp.k[s_no]
+
+                # terminal processes: scalar per terminal
+                clever1_term_vals <- rep(as.integer(target_observed_by_state[s_k]), length(terminal_names))
+                if (target_terminal && target_name %in% terminal_names) {
+                    ix <- which(terminal_names == target_name)
+                    clever1_term_vals[ix] <- 1L
+                }
+
+                # update terminal columns (vectorized over terminal_names)
+                save.k.matrix[k, terminal_names] <- save.k.matrix[k, terminal_names] +
+                    dt_m * (clever1_term_vals - sub_val)
+
+                # stateful processes
+                succ_idx_vec <- gamma_jump_idx_mat[s_k, ]   # length M
+                clever1_vals_stateful <- tmp.k[succ_idx_vec] + is_recurrent_state_processes
+                save.k.matrix[k, state_processes] <- save.k.matrix[k, state_processes] +
+                    dt_m * (clever1_vals_stateful - sub_val)
+
+                # accumulate integrateted expectation for start k (if you want it)
+                # Q_up_to_m[k, s_k] is E[N(t)] at times in the m-th interval for start k
+                save.Q[k] <- save.Q[k] + dt_m * tmp.k[s_k]
+            }
+        }
+
+        out <- cbind(out, save.k.matrix)
+
+        out[, Q.years.lost := save.Q]
+
+    }
+       
     return(out[])
 }
