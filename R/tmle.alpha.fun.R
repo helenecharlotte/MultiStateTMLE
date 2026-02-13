@@ -3,9 +3,9 @@
 ## Author: Helene
 ## Created: Feb  4 2026 (12:51) 
 ## Version: 
-## Last-Updated: Feb 12 2026 (14:41) 
+## Last-Updated: Feb 13 2026 (07:56) 
 ##           By: Helene
-##     Update #: 238
+##     Update #: 245
 #----------------------------------------------------------------------
 ## 
 ### Commentary: 
@@ -175,7 +175,7 @@ tmle.alpha.fun <- function(target = "z",
         for (process.jj in (1:length(process.names))[clever.ids]) {
             name.jj <- process.names[process.jj]
             if (length(years.lost)>0) {
-                eic <- eic + tmp.long[at.risk == 1, sum(alpha^(process.jj == z.process.id)*(
+                eic <- eic + tmp.long[at.risk == 1, sum(alpha^(process.jj == z.process.id)*clever.weight*clever.weight.alpha*(
                     get(paste0("clever.Q.years.lost.", process.names[process.jj])))*((delta == process.deltas[process.jj]) - get(paste0("at.risk.", name.jj))*get(paste0("P.", name.jj)))),
                     by = "id"][[2]]
             } else {
@@ -201,7 +201,7 @@ tmle.alpha.fun <- function(target = "z",
         if (length(years.lost)>0) {
             target.fun <- function(eps, process.jj) {
                 name.jj <- process.names[process.jj]
-                mean(tmp.long[at.risk == 1, sum((alpha)^(process.jj == z.process.id)*(
+                mean(tmp.long[at.risk == 1, sum((alpha)^(process.jj == z.process.id)*clever.weight*clever.weight.alpha*(
                     get(paste0("clever.Q.years.lost.", process.names[process.jj])))*((delta == process.deltas[process.jj]) - get(paste0("at.risk.", name.jj))*get(paste0("P.", name.jj))*exp(eps))), by = "id"][[2]])
             }
         } else {

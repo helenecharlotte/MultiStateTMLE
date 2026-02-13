@@ -367,8 +367,6 @@ compute.Q.clever.per.id <- function(dt_id,
         }
     }
 
-    weight.vec <- out[["clever.weight"]]*out[["clever.weight.alpha"]]
-
     if (get.years.lost) {
 
         # k block size for approximation
@@ -410,7 +408,7 @@ compute.Q.clever.per.id <- function(dt_id,
             imax <- min(tt, nrep)
             
             clever.years.lost.matrix[1:imax, ] <- clever.years.lost.matrix[1:imax, ] +
-                dt.vec[tt] * weight.vec[1:imax] * out[[ "at.risk" ]][1:imax] * clever_diff[1:imax, ]
+                dt.vec[tt] * out[[ "at.risk" ]][1:imax] * clever_diff[1:imax, ]
         }
 
         out [[ "Q" ]] <- Q.years.lost
