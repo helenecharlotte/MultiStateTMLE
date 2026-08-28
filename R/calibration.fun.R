@@ -3,9 +3,9 @@
 ## Author: Helene
 ## Created: May 13 2026 (19:31) 
 ## Version: 
-## Last-Updated: Jul  3 2026 (09:56) 
+## Last-Updated: Aug 28 2026 (08:59) 
 ##           By: Helene
-##     Update #: 138
+##     Update #: 140
 #----------------------------------------------------------------------
 ## 
 ### Commentary: 
@@ -63,11 +63,11 @@ calibration.fun <- function(initial.fit = NULL,
         theta <- rho*est.aux.1[["estimate"]][grep("tmle.est|one.step.est", names(est.aux.1[["estimate"]]), value = TRUE)]
         theta.eic <- rho*est.aux.1$eic
     } else if (length(rho.1a)>0) {
-        est.aux.1a <- tmle.alpha.fun.fixed(alpha = 1,
-                                           a = 1-a,
-                                           output.eic = TRUE)
-        theta <- rho.1a*est.aux.1a[["estimate"]][grep("tmle.est|one.step.est", names(est.aux.1[["estimate"]]), value = TRUE)]
-        theta.eic <- rho.1a*est.aux.1a$eic
+        est.aux.1 <- tmle.alpha.fun.fixed(alpha = 1,
+                                          a = 1-a,
+                                          output.eic = TRUE)
+        theta <- rho.1a*est.aux.1[["estimate"]][grep("tmle.est|one.step.est", names(est.aux.1[["estimate"]]), value = TRUE)]
+        theta.eic <- rho.1a*est.aux.1$eic
     } else if (length(delta)>0) {
         est.aux.1 <- tmle.alpha.fun.fixed(alpha = 1,
                                           a = a,
