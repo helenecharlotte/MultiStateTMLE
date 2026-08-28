@@ -3,9 +3,9 @@
 ## Author: Helene
 ## Created: Feb  4 2026 (08:47) 
 ## Version: 
-## Last-Updated: Jun 25 2026 (15:43) 
+## Last-Updated: Aug 28 2026 (09:14) 
 ##           By: Helene
-##     Update #: 906
+##     Update #: 916
 #----------------------------------------------------------------------
 ## 
 ### Commentary: 
@@ -281,6 +281,41 @@ prepare.initial <- function(dt,
 
     if (return.parameters.for.simulation) {
 
+        # baseline dataset: one row per subject
+        baseline.dt <- dt[idN == 1]
+
+        # baseline covariates
+        baseline.vars <- setdiff(
+            varnames,
+            c(process.names, "time", "tstart", "tstop", "delta")
+        )
+
+        baseline.summary <- lapply(baseline.vars, function(v) {
+
+            x <- baseline.dt[[v]]
+
+            if (is.numeric(x)) {
+                list(
+                    type = "numeric",
+                    mean = mean(x, na.rm = TRUE),
+                    sd = sd(x, na.rm = TRUE),
+                    median = median(x, na.rm = TRUE),
+                    min = min(x, na.rm = TRUE),
+                    max = max(x, na.rm = TRUE)
+                )
+            } else {
+                tab <- table(x, useNA = "ifany")
+                list(
+                    type = class(x)[1],
+                    frequencies = as.list(tab),
+                    proportions = as.list(prop.table(tab))
+                )
+            }
+
+        })
+        
+        names(baseline.summary) <- baseline.vars
+
         parameters.for.simulation <- lapply(fit.cox.types, function(fit.cox.type) {
             
             tmp.type <- fit.cox.type[["tmp.type"]]
@@ -295,7 +330,11 @@ prepare.initial <- function(dt,
         })
 
         names(parameters.for.simulation) <- names(fit.types)
-        
+
+        parameters.for.simulation[["baseline.summary"]] <- baseline.summary
+
+        parameters.for.simulation[["n.subjects"]] <- n
+       
         return(parameters.for.simulation)
     }
 
