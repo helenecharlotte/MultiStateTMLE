@@ -3,9 +3,9 @@
 ## Author: Helene
 ## Created: Feb  4 2026 (08:47) 
 ## Version: 
-## Last-Updated: Aug 28 2026 (09:14) 
+## Last-Updated: Aug 28 2026 (09:55) 
 ##           By: Helene
-##     Update #: 916
+##     Update #: 920
 #----------------------------------------------------------------------
 ## 
 ### Commentary: 
@@ -159,6 +159,9 @@ prepare.initial <- function(dt,
         return(ifelse(is.terminal, "terminal", ifelse(is.recurrent, "recurrent", "one.jump")))
     })
     names(process.types) <- process.names
+
+    at.risks <- lapply(fit.types[at.risk.ids], function(fit.type) fit.type[["at.risk"]])
+    names(at.risks) <- names(fit.types)[at.risk.ids]
 
     which.recurrent <- intersect(state.names, process.names[sapply(process.types, function(process.type) process.type == "recurrent")])
 
@@ -330,6 +333,13 @@ prepare.initial <- function(dt,
         })
 
         names(parameters.for.simulation) <- names(fit.types)
+
+        parameters.for.simulation$model.structure <- list(
+            process.names = process.names,
+            process.deltas = process.deltas,
+            process.types = process.types,
+            cens.process.id = cens.process.id,
+            at.risks = at.risks)
 
         parameters.for.simulation[["baseline.summary"]] <- baseline.summary
 
@@ -1692,9 +1702,6 @@ prepare.initial <- function(dt,
         }
 
     }
-
-    at.risks <- lapply(fit.types[at.risk.ids], function(fit.type) fit.type[["at.risk"]])
-    names(at.risks) <- names(fit.types)[at.risk.ids]
 
     names.P <- names(tmp.long)[substr(names(tmp.long), 1, 2) == "P."]
 
