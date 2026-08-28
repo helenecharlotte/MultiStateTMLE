@@ -3,9 +3,9 @@
 ## Author: Helene
 ## Created: Feb  4 2026 (08:47) 
 ## Version: 
-## Last-Updated: Aug 28 2026 (09:55) 
+## Last-Updated: Aug 28 2026 (10:07) 
 ##           By: Helene
-##     Update #: 920
+##     Update #: 926
 #----------------------------------------------------------------------
 ## 
 ### Commentary: 
@@ -342,6 +342,16 @@ prepare.initial <- function(dt,
             at.risks = at.risks)
 
         parameters.for.simulation[["baseline.summary"]] <- baseline.summary
+
+        if (length(fit.treatment[["model"]])>0) {
+            tab <- table(baseline.dt[[A0.name]], useNA = "ifany")
+            parameters.for.simulation[["treatment.summary"]] <-
+                list(
+                    type = class(baseline.dt[[A0.name]])[1],
+                    frequencies = as.list(tab),
+                    proportions = as.list(prop.table(tab))
+                )
+        }
 
         parameters.for.simulation[["n.subjects"]] <- n
        
