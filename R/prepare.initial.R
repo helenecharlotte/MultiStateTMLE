@@ -3,9 +3,9 @@
 ## Author: Helene
 ## Created: Feb  4 2026 (08:47) 
 ## Version: 
-## Last-Updated: Aug 28 2026 (10:11) 
+## Last-Updated: Aug 29 2026 (20:10) 
 ##           By: Helene
-##     Update #: 927
+##     Update #: 949
 #----------------------------------------------------------------------
 ## 
 ### Commentary: 
@@ -278,7 +278,7 @@ prepare.initial <- function(dt,
         if (verbose) message("------------------------------")
         if (verbose) message(paste0("fit.type = ", names(fit.types)[fit.type.jj]))
         if (verbose) print(tmp.cox)
-        tmp.type <- suppressWarnings(setDT(basehaz(tmp.cox, centered=TRUE)))[, (paste0("dhazard.", names(fit.types)[fit.type.jj])) := c(hazard[1],diff(hazard))][, (paste0("hazard.", names(fit.types)[fit.type.jj])) := hazard][, -"hazard", with = FALSE]
+        tmp.type <- suppressWarnings(setDT(basehaz(tmp.cox, centered=(!return.parameters.for.simulation))))[, (paste0("dhazard.", names(fit.types)[fit.type.jj])) := c(hazard[1],diff(hazard))][, (paste0("hazard.", names(fit.types)[fit.type.jj])) := hazard][, -"hazard", with = FALSE]
         return(list(fit.cox = tmp.cox, tmp.type = tmp.type[tmp.type[[paste0("dhazard.", names(fit.types)[fit.type.jj])]]>0]))
     })
 
@@ -319,13 +319,17 @@ prepare.initial <- function(dt,
         
         names(baseline.summary) <- baseline.vars
 
+        ##par(mfrow = c(1,length(fit.cox.types)))
         parameters.for.simulation <- lapply(fit.cox.types, function(fit.cox.type) {
             
             tmp.type <- fit.cox.type[["tmp.type"]]
             tmp.type[, Haz := cumsum(tmp.type[[2]])]
-    
+
+            ##plot(log(tmp.type$time), log(tmp.type$Haz))
             weib_fit <- lm(log(Haz) ~ log(time), data = tmp.type)
+            ##print(summary(weib_fit))
             coef_weib <- coef(weib_fit)
+            ##abline(a = coef_weib[1], b = coef_weib[2], col = "red")
 
             return(list(cox.parameters = coef(fit.cox.type[["fit.cox"]]),
                         weibull.parameters = c(eta = exp(coef_weib[1]),
