@@ -3,9 +3,9 @@
 ## Author: Helene
 ## Created: Feb  4 2026 (12:51) 
 ## Version: 
-## Last-Updated: Jun 25 2026 (21:37) 
+## Last-Updated: Sep  1 2026 (06:21) 
 ##           By: Helene
-##     Update #: 493
+##     Update #: 499
 #----------------------------------------------------------------------
 ## 
 ### Commentary: 
@@ -68,7 +68,7 @@ tmle.alpha.fun <- function(target = "z",
     if (length(alpha.list)>0) {
         message("using new alpha option: check")
         for (alpha.kk in 1:length(alpha.list)) {
-            transplant.dt[, paste0("alpha.", names(alpha.list)[alpha.kk]) := #
+            tmp.long[, paste0("alpha.", names(alpha.list)[alpha.kk]) := #
                                 do.call(alpha.list[[alpha.kk]], .SD), .SDcols = names(formals(alpha.list[[alpha.kk]]))]
         }
         z.present <- TRUE
@@ -168,7 +168,7 @@ tmle.alpha.fun <- function(target = "z",
     } else {
         tmp.long[, clever.weight.alpha := 1]
     }
-
+    
     if (length(a)>0) {
         tmp.long[, clever.weight := tmp.long[[paste0("clever.weight.a", a)]]]
     }
@@ -368,7 +368,14 @@ tmle.alpha.fun <- function(target = "z",
                 tmp.long[[(paste0(P.prefix, name.jj))]] <-
                     tmp.long[[(paste0(P.prefix, name.jj))]]*exp(eps.jj)
             }
-            if (P.prefix != "P.") tmp.long[[(paste0("P.", name.jj))]] <- tmp.long[[(paste0("P.", name.jj))]]*exp(eps.jj)
+            if (P.prefix != "P.") {
+                if (target.by.state) {
+                    tmp.long[[paste0("P.", name.jj)]] <- tmp.long[[paste0("P.", name.jj)]] *
+                        exp(eps.jj * tmp.long[[paste0(clever.Q.label, name.jj)]])
+                } else {
+                    tmp.long[[(paste0("P.", name.jj))]] <- tmp.long[[(paste0("P.", name.jj))]]*exp(eps.jj)
+                }
+            }
             for (state.jj in depend.matrix[, unique(state)]) {
                 if (target.by.state) {
                     tmp.long[[(paste0(P.prefix, name.jj, ".", state.jj))]] <-
